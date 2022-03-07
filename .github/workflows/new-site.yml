@@ -1,0 +1,35 @@
+name: GitHub Actions Demo
+on: [push]
+jobs:
+  Explore-GitHub-Actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v2
+
+      - name: Start temporary container (Our mock for remote server)
+        run: docker run --privileged --name nginx -v ${{ github.workspace }}/config/default.conf:/etc/nginx/conf.d/default.conf -v ${{ github.workspace }}/site:/usr/share/nginx/html -d -p 8000:80 nginx
+
+      - name: Copy website folder from remote server to build server
+        run: docker cp nginx:/usr/share/nginx/html backup
+
+      - name: Create a zip file and upload to backup server (GitHub Artifacts)
+        uses: papeloto/action-zip@v1
+        with:
+          files: backup/
+          dest: website-${{ github.job }}.zip
+
+      - uses: actions/upload-artifact@v1
+        with:
+          name: previous-version
+          path: ${{ github.workspace }}/website-${{ github.job }}.zip
+
+      - run: echo "Back-up complete!"
+
+      - name: Deploy new site from zip
+        uses: montudor/action-zip@v1
+        with:
+          args: unzip -qq release/website.zip -d release/next
+
+      - run: docker cp release/next nginx:/usr/share/nginx/html
+      - run: curl -i http://localhost:8000 || echo "Rolling back deployment due to failed health-check..." && docker cp backup nginx:/usr/share/nginx/html && echo "Rollback complete"
